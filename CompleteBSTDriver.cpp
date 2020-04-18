@@ -171,12 +171,16 @@ void* producer_thd(void* p_args)
     ListArray<CD>* cds = (ListArray<CD> *) args[0];
     Random* rand = (Random *) args[1];
 
+    // The actual test condition for the loop is in the first if-clause below.
+    // This is done to prevent any concurrency issues with num_trees_p being
+    // changed after it has already been checked.
 	while (1)
     {
         CD** cd_array = producer_seq(cds, rand);
         pthread_mutex_lock(&mutex);
         while (buffer_count == BUFFER_SIZE)
             pthread_cond_wait(&empty, &mutex);
+
         if (num_trees_p >= NUM_TREES + NUM_CONSUMERS)
         {
             pthread_cond_broadcast(&full);
@@ -187,6 +191,7 @@ void* producer_thd(void* p_args)
             put(NULL);
         else
             put(cd_array);
+
         num_trees_p++;
         pthread_cond_broadcast(&full);
         pthread_mutex_unlock(&mutex);
@@ -204,6 +209,7 @@ void* consumer_thd(void* c_args)
         pthread_mutex_lock(&mutex);
         while (buffer_count == 0)
             pthread_cond_wait(&full, &mutex);
+
         CD** cd_array = get();
         if (cd_array == NULL)
         {
@@ -211,6 +217,7 @@ void* consumer_thd(void* c_args)
             pthread_mutex_unlock(&mutex);
             break;
         }
+
         num_trees_c++;
         pthread_cond_broadcast(&empty);
         pthread_mutex_unlock(&mutex);
