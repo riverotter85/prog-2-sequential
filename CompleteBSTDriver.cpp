@@ -24,8 +24,8 @@ using CSC1310::Random;
 using namespace std;
 
 int BUFFER_SIZE = 100;
-int NUM_PRODUCERS = 13;
-int NUM_CONSUMERS = 17;
+int NUM_PRODUCERS = 40;
+int NUM_CONSUMERS = 40;
 int NUM_TREES = 10000;
 int ERROR_RATE = 10;
 
@@ -161,6 +161,42 @@ void consumer_seq(CD** cds_array, int num_items, int expected_height)
 		delete[] cds_array;
 }
 
+void* producer_thd(void* p_args)
+{
+    long* args = (long*) p_args;
+    ListArray<CD>* cds = (ListArray<CD> *) args[0];
+    Random* rand = (Random *) args[1];
+
+	for (int i = 0; i < NUM_TREES; i++)
+    {
+        CD** cd_array = producer_seq(cds, rand);
+        pthread_mutex_lock(&mutex);
+        while (buffer_count == BUFFER_SIZE)
+            pthread_cond_wait(&empty, &mutex);
+        put(cd_array);
+        pthread_cond_signal(&full);
+        pthread_mutex_unlock(&mutex);
+    }
+}
+
+void* consumer_thd(void* c_args)
+{
+    int* args = (int*) c_args;
+    int num_items = args[0];
+    int expected_height = args[1];
+
+    for (int i = 0; i < NUM_TREES; i++)
+    {
+        pthread_mutex_lock(&mutex);
+        while (buffer_count == 0)
+            pthread_cond_wait(&full, &mutex);
+        CD** cd_array = get();
+        pthread_cond_signal(&empty);
+        pthread_mutex_unlock(&mutex);
+	    consumer_seq(cd_array, num_items, expected_height);
+    }
+}
+
 int main()
 {
 	buffer = new CD**[BUFFER_SIZE];
@@ -187,18 +223,32 @@ int main()
    consumer_args[1] = expected_height;
    int** temp_c = &consumer_args;
   
-   pthread_t p, c;
    start = time(NULL);
 
 	for (int i = 1; i <= NUM_TREES; i++)
 	{
 	    CD** cd_array = producer_seq(cds, rand);
+        //cout << "Produced CD array #" << i << endl;
 		consumer_seq(cd_array, num_items, expected_height);
+        //cout << "Consumed CD array #" << i << endl;
 	}
    
     end = time(NULL);
    printf("sequential: %ds\n", (int)(end - start)); 
-	
+
+   // concurrent (using threads/joins)
+   pthread_t p, c;
+   start = time(NULL);
+
+    pthread_create(&p, NULL, producer_thd, producer_args);
+    pthread_create(&c, NULL, consumer_thd, consumer_args);
+
+    pthread_join(p, NULL);
+    pthread_join(c, NULL);
+
+   end = time(NULL);
+   printf("concurrent: %ds\n", (int)(end - start));
+
    delete[] producer_args;
    delete[] consumer_args;
    deleteCDs(cds);
