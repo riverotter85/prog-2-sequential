@@ -23,9 +23,9 @@ using CSC1310::Random;
 #include <iostream>
 using namespace std;
 
-int BUFFER_SIZE = 100;
-int NUM_PRODUCERS = 40;
-int NUM_CONSUMERS = 40;
+int BUFFER_SIZE = 5;
+int NUM_PRODUCERS = 30;
+int NUM_CONSUMERS = 20;
 int NUM_TREES = 10000;
 int ERROR_RATE = 10;
 
@@ -167,14 +167,24 @@ void* producer_thd(void* p_args)
     ListArray<CD>* cds = (ListArray<CD> *) args[0];
     Random* rand = (Random *) args[1];
 
-	for (int i = 0; i < NUM_TREES; i++)
+	while (1)
     {
         CD** cd_array = producer_seq(cds, rand);
         pthread_mutex_lock(&mutex);
         while (buffer_count == BUFFER_SIZE)
             pthread_cond_wait(&empty, &mutex);
-        put(cd_array);
-        pthread_cond_signal(&full);
+        if (num_trees_p >= NUM_TREES + NUM_CONSUMERS)
+        {
+            pthread_cond_broadcast(&full);
+            pthread_mutex_unlock(&mutex);
+            break;
+        }
+        else if (num_trees_p >= NUM_TREES)
+            put(NULL);
+        else
+            put(cd_array);
+        num_trees_p++;
+        pthread_cond_broadcast(&full);
         pthread_mutex_unlock(&mutex);
     }
 }
@@ -185,13 +195,20 @@ void* consumer_thd(void* c_args)
     int num_items = args[0];
     int expected_height = args[1];
 
-    for (int i = 0; i < NUM_TREES; i++)
+    while (1)
     {
         pthread_mutex_lock(&mutex);
         while (buffer_count == 0)
             pthread_cond_wait(&full, &mutex);
         CD** cd_array = get();
-        pthread_cond_signal(&empty);
+        if (cd_array == NULL)
+        {
+            pthread_cond_broadcast(&empty);
+            pthread_mutex_unlock(&mutex);
+            break;
+        }
+        num_trees_c++;
+        pthread_cond_broadcast(&empty);
         pthread_mutex_unlock(&mutex);
 	    consumer_seq(cd_array, num_items, expected_height);
     }
@@ -228,26 +245,33 @@ int main()
 	for (int i = 1; i <= NUM_TREES; i++)
 	{
 	    CD** cd_array = producer_seq(cds, rand);
-        //cout << "Produced CD array #" << i << endl;
 		consumer_seq(cd_array, num_items, expected_height);
-        //cout << "Consumed CD array #" << i << endl;
 	}
    
     end = time(NULL);
-   printf("sequential: %ds\n", (int)(end - start)); 
+   printf("sequential: %ds\n\n", (int)(end - start)); 
 
    // concurrent (using threads/joins)
-   pthread_t p, c;
+   pthread_t p[NUM_PRODUCERS];
+   pthread_t c[NUM_CONSUMERS];
    start = time(NULL);
 
-    pthread_create(&p, NULL, producer_thd, producer_args);
-    pthread_create(&c, NULL, consumer_thd, consumer_args);
+    for (int i = 0; i < NUM_PRODUCERS; i++)
+        pthread_create(&p[i], NULL, producer_thd, producer_args);
 
-    pthread_join(p, NULL);
-    pthread_join(c, NULL);
+    for (int i = 0; i < NUM_CONSUMERS; i++)
+        pthread_create(&c[i], NULL, consumer_thd, consumer_args);
+
+    for (int i = 0; i < NUM_PRODUCERS; i++)
+        pthread_join(p[i], NULL);
+
+    for (int i = 0; i < NUM_CONSUMERS; i++)
+        pthread_join(c[i], NULL);
 
    end = time(NULL);
-   printf("concurrent: %ds\n", (int)(end - start));
+   printf("concurrent: %ds\n\n", (int)(end - start));
+   printf("Total num BSTs produced (minus NULL pushes): %d\n", num_trees_p - NUM_CONSUMERS);
+   printf("Total num BSTs consumed: %d\n", num_trees_c);
 
    delete[] producer_args;
    delete[] consumer_args;
