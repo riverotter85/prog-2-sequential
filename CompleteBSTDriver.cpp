@@ -24,8 +24,8 @@ using CSC1310::Random;
 using namespace std;
 
 int BUFFER_SIZE = 5;
-int NUM_PRODUCERS = 30;
-int NUM_CONSUMERS = 20;
+int NUM_PRODUCERS = 10;
+int NUM_CONSUMERS = 10;
 int NUM_TREES = 10000;
 int ERROR_RATE = 10;
 
@@ -161,6 +161,10 @@ void consumer_seq(CD** cds_array, int num_items, int expected_height)
 		delete[] cds_array;
 }
 
+// NOTE: The concurrent (i.e. threaded) versions of producer and consumer
+//      build on the code given in the sequential functions, using locks,
+//      threads, and condition variables to increase performance
+
 void* producer_thd(void* p_args)
 {
     long* args = (long*) p_args;
@@ -242,6 +246,9 @@ int main()
   
    start = time(NULL);
 
+    // NOTE: Sequential is left to run before the concurrent producer/consumer
+    //      purely for means of performance comparison
+
 	for (int i = 1; i <= NUM_TREES; i++)
 	{
 	    CD** cd_array = producer_seq(cds, rand);
@@ -251,27 +258,27 @@ int main()
     end = time(NULL);
    printf("sequential: %ds\n\n", (int)(end - start)); 
 
-   // concurrent (using threads/joins)
+   // Concurrent (using threads/joins)
    pthread_t p[NUM_PRODUCERS];
    pthread_t c[NUM_CONSUMERS];
    start = time(NULL);
 
+    // Create all producer/consumer threads
     for (int i = 0; i < NUM_PRODUCERS; i++)
         pthread_create(&p[i], NULL, producer_thd, producer_args);
-
     for (int i = 0; i < NUM_CONSUMERS; i++)
         pthread_create(&c[i], NULL, consumer_thd, consumer_args);
 
+    // Wait for threads to finish
     for (int i = 0; i < NUM_PRODUCERS; i++)
         pthread_join(p[i], NULL);
-
     for (int i = 0; i < NUM_CONSUMERS; i++)
         pthread_join(c[i], NULL);
 
    end = time(NULL);
    printf("concurrent: %ds\n\n", (int)(end - start));
-   printf("Total num BSTs produced (minus NULL pushes): %d\n", num_trees_p - NUM_CONSUMERS);
-   printf("Total num BSTs consumed: %d\n", num_trees_c);
+   printf("Total BSTs produced (minus NULL pushes): %d\n", num_trees_p - NUM_CONSUMERS);
+   printf("Total BSTs consumed: %d\n", num_trees_c);
 
    delete[] producer_args;
    delete[] consumer_args;
